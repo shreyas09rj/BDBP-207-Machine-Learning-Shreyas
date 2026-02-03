@@ -1,90 +1,93 @@
-#!/bin/usr/python3
-
-# Use the above simulated CSV file and implement the following from scratch in Python
-# Read simulated data csv file
-# Form x and y (disease_score_fluct)
-# Write a function to compute hypothesis
-# Write a function to compute the cost
-# Write a function to compute the derivative
-# Write update parameters logic in the main function
+#!/usr/bin/python
 
 import csv
-import numpy as np
 
-# 1. Read CSV
-def read_csv(filename):
+def load_data(filename):
     X = []
     y = []
 
     with open(filename, 'r') as f:
         reader = csv.reader(f)
-        next(reader)
+        header = next(reader)
+        target_index = header.index("disease_score_fluct")
 
         for row in reader:
-            X.append([float(row[0]), float(row[1]), float(row[2])])
-            y.append(float(row[3]))
+            row = [float(val) for val in row]
+            y.append(row[target_index])
+            X.append(row[:target_index] + row[target_index+1:])
 
-    return np.array(X), np.array(y)
+    return X, y, header
 
 
-# Normalize features
-def normalize(X):
-    mean = np.mean(X, axis=0)
-    std = np.std(X, axis=0)
-    X_norm = (X - mean) / std
+def normalize_features(X):
+    X_norm = [[0]*len(X[0]) for _ in range(len(X))]
+
+    for j in range(len(X[0])):
+        col = [row[j] for row in X]
+        mean = sum(col) / len(col)
+        std = (sum((v - mean) ** 2 for v in col) / len(col)) ** 0.5
+
+        for i in range(len(X)):
+            X_norm[i][j] = (X[i][j] - mean) / std
+
     return X_norm
 
 
-# Add bias column
-def add_bias(X):
-    ones = np.ones((X.shape[0], 1))
-    return np.hstack((ones, X))
+def hypothesis_theta(x, theta):
+    result = theta[0]
+    for i in range(len(x)):
+        result += theta[i+1] * x[i]
+    return result
 
 
-def hypothesis(X, theta):
-    return np.dot(X, theta)
+def cost_function(X, y, theta):
+    m = len(X)
+    return sum((hypothesis_theta(X[i], theta) - y[i])**2 for i in range(m)) / m
 
 
-def compute_cost(X, y, theta):
-    m = len(y)
-    predictions = hypothesis(X, theta)
-    return (1/(2*m)) * np.sum((predictions - y) ** 2)
+def compute_gradients(X, y, theta):
+    m = len(X)
+    gradients = [0] * len(theta)
+
+    for i in range(m):
+        error = hypothesis_theta(X[i], theta) - y[i]
+        gradients[0] += error
+        for j in range(len(X[i])):
+            gradients[j+1] += error * X[i][j]
+
+    return [g/m for g in gradients]
 
 
-def compute_gradient(X, y, theta):
-    m = len(y)
-    predictions = hypothesis(X, theta)
-    return (1/m) * np.dot(X.T, (predictions - y))
+def r2_score_scratch(X, y, theta):
+    preds = [hypothesis_theta(X[i], theta) for i in range(len(X))]
+    y_mean = sum(y)/len(y)
+
+    ss_res = sum((y[i]-preds[i])**2 for i in range(len(y)))
+    ss_tot = sum((y[i]-y_mean)**2 for i in range(len(y)))
+
+    return 1 - ss_res/ss_tot
 
 
 def main():
-    X, y = read_csv("/home/ibab/PycharmProjects/PythonProject/machinelearning/lab03/simulated_data_multiple_linear_regression_for_ML.csv")
+    filename = "/home/ibab/PycharmProjects/PythonProject/machinelearning/lab03/simulated_data_multiple_linear_regression_for_ML.csv"
 
-    # Normalize
-    X = normalize(X)
+    X, y, header = load_data(filename)
+    X = normalize_features(X)
 
-    # Add bias
-    X = add_bias(X)
-
-    theta = np.zeros(X.shape[1])
+    theta = [0]*(len(X[0])+1)
     alpha = 0.01
-    iterations = 1000
+    epochs = 1000
 
-    for i in range(iterations):
-        grad = compute_gradient(X, y, theta)
-        theta = theta - alpha * grad
+    for epoch in range(epochs):
+        gradients = compute_gradients(X, y, theta)
+        for j in range(len(theta)):
+            theta[j] -= alpha * gradients[j]
 
-        if i % 100 == 0:
-            print("Cost:", compute_cost(X, y, theta))
+        if epoch % 100 == 0:
+            print("Epoch", epoch, "Cost:", cost_function(X, y, theta))
 
-    print("\nFinal parameters:", theta)
+    print("\nFinal R2:", r2_score_scratch(X, y, theta))
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
