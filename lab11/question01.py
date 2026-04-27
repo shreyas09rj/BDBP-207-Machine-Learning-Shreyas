@@ -1,105 +1,126 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import numpy as np
 from sklearn.datasets import load_iris
 from collections import Counter
 
 
-def entropy(y):
-    count = np.bincount(y)
-    prob = count / len(y)
-    return -np.sum([p * np.log2(p) for p in prob if p > 0])
+def calc_entropy(labels):
+    freq = np.bincount(labels)
+    probs = freq / len(labels)
+    ent = 0.0
+    for p in probs:
+        if p > 0:
+            ent -= p * np.log2(p)
+    return ent
 
 
-def info_gain(parent, left, right):
-    n = len(parent)
-    return entropy(parent) - (len(left)/n)*entropy(left) - (len(right)/n)*entropy(right)
+def gain(parent_y, left_y, right_y):
+    total = len(parent_y)
+    w_left = len(left_y) / total
+    w_right = len(right_y) / total
+
+    return calc_entropy(parent_y) - (
+        w_left * calc_entropy(left_y) + w_right * calc_entropy(right_y)
+    )
 
 
-def best_split(X, y):
-    best_gain = 0
-    split_col = None
-    split_val = None
+def find_split(features, labels):
+    best_score = -1
+    best_feature = None
+    best_threshold = None
 
-    for col in range(X.shape[1]):
-        values = np.unique(X[:, col])
+    n_features = features.shape[1]
 
-        for val in values:
-            left = y[X[:, col] <= val]
-            right = y[X[:, col] > val]
+    for f in range(n_features):
+        unique_vals = np.unique(features[:, f])
 
-            if len(left) == 0 or len(right) == 0:
+        for threshold in unique_vals:
+            left_mask = features[:, f] <= threshold
+            right_mask = features[:, f] > threshold
+
+            left_labels = labels[left_mask]
+            right_labels = labels[right_mask]
+
+            if len(left_labels) == 0 or len(right_labels) == 0:
                 continue
 
-            gain = info_gain(y, left, right)
+            score = gain(labels, left_labels, right_labels)
 
-            if gain > best_gain:
-                best_gain = gain
-                split_col = col
-                split_val = val
+            if score > best_score:
+                best_score = score
+                best_feature = f
+                best_threshold = threshold
 
-    return split_col, split_val
-
-
-def majority(y):
-    return Counter(y).most_common(1)[0][0]
+    return best_feature, best_threshold
 
 
-class Node:
-    def __init__(self, col=None, val=None, left=None, right=None, result=None):
-        self.col = col
-        self.val = val
+def most_common_label(labels):
+    return Counter(labels).most_common(1)[0][0]
+
+
+class TreeNode:
+    def __init__(self, feature=None, threshold=None, left=None, right=None, label=None):
+        self.feature = feature
+        self.threshold = threshold
         self.left = left
         self.right = right
-        self.result = result
+        self.label = label
 
 
-class Tree:
-    def __init__(self, depth=3):
-        self.depth = depth
+class DecisionTree:
+    def __init__(self, max_depth=3):
+        self.max_depth = max_depth
+        self.root_node = None
 
-    def build(self, X, y, d):
-        if len(set(y)) == 1 or d == self.depth:
-            return Node(result=majority(y))
+    def _grow(self, X, y, depth):
+        # stopping conditions
+        if len(set(y)) == 1 or depth >= self.max_depth:
+            return TreeNode(label=most_common_label(y))
 
-        col, val = best_split(X, y)
+        feat, thresh = find_split(X, y)
 
-        if col is None:
-            return Node(result=majority(y))
+        if feat is None:
+            return TreeNode(label=most_common_label(y))
 
-        left_idx = X[:, col] <= val
-        right_idx = X[:, col] > val
+        left_mask = X[:, feat] <= thresh
+        right_mask = X[:, feat] > thresh
 
-        left = self.build(X[left_idx], y[left_idx], d+1)
-        right = self.build(X[right_idx], y[right_idx], d+1)
+        left_branch = self._grow(X[left_mask], y[left_mask], depth + 1)
+        right_branch = self._grow(X[right_mask], y[right_mask], depth + 1)
 
-        return Node(col, val, left, right)
+        return TreeNode(feature=feat, threshold=thresh,
+                        left=left_branch, right=right_branch)
 
     def fit(self, X, y):
-        self.root = self.build(X, y, 0)
+        self.root_node = self._grow(X, y, 0)
 
-    def predict_one(self, x, node):
-        if node.result is not None:
-            return node.result
+    def _predict_single(self, sample, node):
+        if node.label is not None:
+            return node.label
 
-        if x[node.col] <= node.val:
-            return self.predict_one(x, node.left)
+        if sample[node.feature] <= node.threshold:
+            return self._predict_single(sample, node.left)
         else:
-            return self.predict_one(x, node.right)
+            return self._predict_single(sample, node.right)
 
     def predict(self, X):
-        return np.array([self.predict_one(x, self.root) for x in X])
+        results = []
+        for sample in X:
+            results.append(self._predict_single(sample, self.root_node))
+        return np.array(results)
 
 
+# ---- run model ----
 
-data = load_iris()
-X = data.data
-y = data.target
+iris_data = load_iris()
+features = iris_data.data
+targets = iris_data.target
 
-model = Tree(depth=3)
-model.fit(X, y)
+clf = DecisionTree(max_depth=3)
+clf.fit(features, targets)
 
-pred = model.predict(X)
+predictions = clf.predict(features)
 
-acc = np.mean(pred == y)
-print("Accuracy:", acc)
+accuracy = np.mean(predictions == targets)
+print("Accuracy =", accuracy)
